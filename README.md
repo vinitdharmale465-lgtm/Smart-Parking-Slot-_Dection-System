@@ -21,4 +21,3 @@ The ESP32 must also send CORS headers:
   server.sendHeader("Access-Control-Allow-Origin", "*");
 =======
 # Smart-Parking-Slot-_Dection-System
->>>>>>> 529f3ef3b1ce6c31d9084548569c7b46aa001e4e
