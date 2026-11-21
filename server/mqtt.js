@@ -1,3 +1,4 @@
+
 import mqtt from "mqtt";
 
 const MQTT_HOST = process.env.MQTT_HOST;
@@ -14,24 +15,32 @@ let parkingData = {
 };
 
 export function getParkingData() {
-  return parkingData;
+  return {
+    ...parkingData,
+    slots: [...parkingData.slots]
+  };
 }
 
 export function connectMQTT() {
-  const brokerUrl = MQTT_HOST.startsWith("mqtts://") || MQTT_HOST.startsWith("mqtt://")
+  if (!MQTT_HOST || !MQTT_USERNAME || !MQTT_PASSWORD) {
+    throw new Error("MQTT configuration is missing");
+  }
+
+  const brokerUrl = MQTT_HOST.startsWith("mqtts://")
     ? MQTT_HOST
-    : `mqtts://${MQTT_HOST}:8883`;
+    : `mqtts://${MQTT_HOST.replace(/:\d+$/, "")}:8883`;
 
   const client = mqtt.connect(brokerUrl, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
-    reconnectPeriod: 5000
+    reconnectPeriod: 5000,
+    connectTimeout: 30000
   });
 
   client.on("connect", () => {
     console.log("MQTT Connected Successfully");
 
-    client.subscribe("smartparking/status", (error) => {
+    client.subscribe("smartparking/status", { qos: 0 }, (error) => {
       if (error) {
         console.error("MQTT Subscribe Error:", error.message);
       } else {
@@ -40,18 +49,42 @@ export function connectMQTT() {
     });
   });
 
-  client.on("message", (_topic, message) => {
+  client.on("message", (topic, message) => {
     try {
       const parsed = JSON.parse(message.toString());
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        parkingData = {
-          ...parkingData,
-          ...parsed
-        };
-        console.log("Parking Data Received:", parkingData);
-      } else {
-        console.error("Invalid MQTT Data: expected JSON object");
+
+      if (
+        topic !== "smartparking/status" ||
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        console.error("Invalid MQTT message");
+        return;
       }
+
+      if (
+        !Number.isFinite(parsed.free) ||
+        !Number.isFinite(parsed.occupied) ||
+        !Array.isArray(parsed.slots) ||
+        parsed.slots.length !== 4 ||
+        !parsed.slots.every(value => typeof value === "boolean")
+      ) {
+        console.error("Invalid parking data format");
+        return;
+      }
+
+      parkingData = {
+        free: parsed.free,
+        occupied: parsed.occupied,
+        full: Boolean(parsed.full),
+        gate: Boolean(parsed.gate),
+        carsInside: Number(parsed.carsInside) || 0,
+        slots: [...parsed.slots]
+      };
+
+      console.log("Updated Parking Data:", JSON.stringify(parkingData));
+
     } catch (error) {
       console.error("Invalid MQTT Data:", error.message);
     }
@@ -59,6 +92,10 @@ export function connectMQTT() {
 
   client.on("error", (error) => {
     console.error("MQTT Error:", error.message);
+  });
+
+  client.on("reconnect", () => {
+    console.log("MQTT Reconnecting...");
   });
 
   return client;

@@ -1,107 +1,102 @@
-import "dotenv/config";
 
-import express from "express";
-import cookieParser from "cookie-parser";
-import mongoose from "mongoose";
-import dns from "node:dns";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import mqtt from "mqtt";
 
-import authRoutes from "./routes/auth.js";
-import { requireAuth } from "./middleware/auth.js";
-import { connectMQTT, getParkingData } from "./mqtt.js";
+const MQTT_HOST = process.env.MQTT_HOST;
+const MQTT_USERNAME = process.env.MQTT_USERNAME;
+const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
 
-// DNS Configuration
-dns.setServers(["8.8.8.8", "1.1.1.1"]);
+let parkingData = {
+  free: 0,
+  occupied: 0,
+  full: false,
+  gate: false,
+  carsInside: 0,
+  slots: [false, false, false, false]
+};
 
-// Directory Configuration
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// Express App
-const app = express();
-
-// Middleware
-app.use(express.json());
-app.use(cookieParser());
-
-// Authentication Routes
-app.use("/api/auth", authRoutes);
-
-app.get("/api/dashboard", requireAuth, (_req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Dashboard access successful"
-  });
-});
-
-// Smart Parking API
-app.get("/api/parking/status", (_req, res) => {
-  res.status(200).json({
-    success: true,
-    data: getParkingData()
-  });
-});
-
-// Production Frontend
-if (process.env.NODE_ENV === "production") {
-  const dist = path.join(__dirname, "../client/dist");
-
-  app.use(express.static(dist));
-
-  // Use "/{*splat}" for Express v5; use "*" if on Express v4
-  app.get("/{*splat}", (_req, res) => {
-    res.sendFile(path.join(dist, "index.html"));
-  });
+export function getParkingData() {
+  return {
+    ...parkingData,
+    slots: [...parkingData.slots]
+  };
 }
 
-// Start Server
-async function startServer() {
-  try {
-    if (!process.env.MONGO_URI) {
-      throw new Error("MONGO_URI is missing from environment variables");
-    }
-
-    if (!process.env.JWT_SECRET) {
-      throw new Error("JWT_SECRET is missing from environment variables");
-    }
-
-    if (
-      !process.env.MQTT_HOST ||
-      !process.env.MQTT_USERNAME ||
-      !process.env.MQTT_PASSWORD
-    ) {
-      throw new Error("MQTT environment variables are missing");
-    }
-
-    const mongoUrl = new URL(process.env.MONGO_URI);
-
-    console.log("--------------------------------");
-    console.log("MongoDB Host:", mongoUrl.hostname);
-    console.log("Database:", mongoUrl.pathname);
-    console.log("DNS Servers:", dns.getServers());
-    console.log("--------------------------------");
-
-    await mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 15000
-    });
-
-    console.log("MongoDB Connected Successfully");
-
-    // Connect MQTT
-    connectMQTT();
-
-    // Start Server
-    const PORT = process.env.PORT || 5000;
-
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error("Server Startup Error:");
-    console.error(error.message);
-    process.exit(1);
+export function connectMQTT() {
+  if (!MQTT_HOST || !MQTT_USERNAME || !MQTT_PASSWORD) {
+    throw new Error("MQTT configuration is missing");
   }
-}
 
-// Start Application
-startServer();
+  const brokerUrl = MQTT_HOST.startsWith("mqtts://")
+    ? MQTT_HOST
+    : `mqtts://${MQTT_HOST.replace(/:\d+$/, "")}:8883`;
+
+  const client = mqtt.connect(brokerUrl, {
+    username: MQTT_USERNAME,
+    password: MQTT_PASSWORD,
+    reconnectPeriod: 5000,
+    connectTimeout: 30000
+  });
+
+  client.on("connect", () => {
+    console.log("MQTT Connected Successfully");
+
+    client.subscribe("smartparking/status", { qos: 0 }, (error) => {
+      if (error) {
+        console.error("MQTT Subscribe Error:", error.message);
+      } else {
+        console.log("Subscribed to smartparking/status");
+      }
+    });
+  });
+
+  client.on("message", (topic, message) => {
+    try {
+      const parsed = JSON.parse(message.toString());
+
+      if (
+        topic !== "smartparking/status" ||
+        !parsed ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        console.error("Invalid MQTT message");
+        return;
+      }
+
+      if (
+        !Number.isFinite(parsed.free) ||
+        !Number.isFinite(parsed.occupied) ||
+        !Array.isArray(parsed.slots) ||
+        parsed.slots.length !== 4 ||
+        !parsed.slots.every(value => typeof value === "boolean")
+      ) {
+        console.error("Invalid parking data format");
+        return;
+      }
+
+      parkingData = {
+        free: parsed.free,
+        occupied: parsed.occupied,
+        full: Boolean(parsed.full),
+        gate: Boolean(parsed.gate),
+        carsInside: Number(parsed.carsInside) || 0,
+        slots: [...parsed.slots]
+      };
+
+      console.log("Updated Parking Data:", JSON.stringify(parkingData));
+
+    } catch (error) {
+      console.error("Invalid MQTT Data:", error.message);
+    }
+  });
+
+  client.on("error", (error) => {
+    console.error("MQTT Error:", error.message);
+  });
+
+  client.on("reconnect", () => {
+    console.log("MQTT Reconnecting...");
+  });
+
+  return client;
+}
