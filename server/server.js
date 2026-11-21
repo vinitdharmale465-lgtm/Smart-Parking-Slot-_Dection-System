@@ -12,20 +12,20 @@ import authRoutes from "./routes/auth.js";
 import { requireAuth } from "./middleware/auth.js";
 import { connectMQTT, getParkingData } from "./mqtt.js";
 
-// ---------- DNS Configuration ----------
+// DNS Configuration
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
-// ---------- Directory ----------
+// Directory Configuration
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ---------- Express App ----------
+// Express Application
 const app = express();
 
-// ---------- Middleware ----------
+// Middleware
 app.use(express.json());
 app.use(cookieParser());
 
-// ---------- Authentication Routes ----------
+// Authentication Routes
 app.use("/api/auth", authRoutes);
 
 app.get("/api/dashboard", requireAuth, (req, res) => {
@@ -35,7 +35,7 @@ app.get("/api/dashboard", requireAuth, (req, res) => {
   });
 });
 
-// ---------- Smart Parking API ----------
+// Smart Parking API
 app.get("/api/parking/status", (req, res) => {
   res.status(200).json({
     success: true,
@@ -43,18 +43,18 @@ app.get("/api/parking/status", (req, res) => {
   });
 });
 
-// ---------- Production Frontend ----------
+// Production Frontend
 if (process.env.NODE_ENV === "production") {
   const dist = path.join(__dirname, "../client/dist");
 
   app.use(express.static(dist));
 
-  app.get("*", (_req, res) => {
+  app.get("*", (req, res) => {
     res.sendFile(path.join(dist, "index.html"));
   });
 }
 
-// ---------- MongoDB Connection ----------
+// Start Server
 async function startServer() {
   try {
     if (!process.env.MONGO_URI) {
@@ -69,24 +69,14 @@ async function startServer() {
       throw new Error("MQTT environment variables are missing");
     }
 
-    const mongoUrl = new URL(process.env.MONGO_URI);
-
-    console.log("--------------------------------");
-    console.log("MongoDB Host:", mongoUrl.hostname);
-    console.log("Database:", mongoUrl.pathname);
-    console.log("DNS Servers:", dns.getServers());
-    console.log("--------------------------------");
-
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 15000
     });
 
     console.log("MongoDB Connected Successfully");
 
-    // ---------- Connect MQTT ----------
     connectMQTT();
 
-    // ---------- Start Server ----------
     const PORT = process.env.PORT || 5000;
 
     app.listen(PORT, "0.0.0.0", () => {
@@ -100,5 +90,5 @@ async function startServer() {
   }
 }
 
-// ---------- Start Application ----------
+// Start Application
 startServer();
