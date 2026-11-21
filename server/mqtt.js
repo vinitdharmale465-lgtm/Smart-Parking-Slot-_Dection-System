@@ -18,7 +18,11 @@ export function getParkingData() {
 }
 
 export function connectMQTT() {
-  const client = mqtt.connect(`mqtts://${MQTT_HOST}:8883`, {
+  const brokerUrl = MQTT_HOST.startsWith("mqtts://") || MQTT_HOST.startsWith("mqtt://")
+    ? MQTT_HOST
+    : `mqtts://${MQTT_HOST}:8883`;
+
+  const client = mqtt.connect(brokerUrl, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
     reconnectPeriod: 5000
@@ -36,10 +40,18 @@ export function connectMQTT() {
     });
   });
 
-  client.on("message", (topic, message) => {
+  client.on("message", (_topic, message) => {
     try {
-      parkingData = JSON.parse(message.toString());
-      console.log("Parking Data Received:", parkingData);
+      const parsed = JSON.parse(message.toString());
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        parkingData = {
+          ...parkingData,
+          ...parsed
+        };
+        console.log("Parking Data Received:", parkingData);
+      } else {
+        console.error("Invalid MQTT Data: expected JSON object");
+      }
     } catch (error) {
       console.error("Invalid MQTT Data:", error.message);
     }

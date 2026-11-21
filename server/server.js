@@ -27,7 +27,7 @@ app.use(cookieParser());
 // Authentication Routes
 app.use("/api/auth", authRoutes);
 
-app.get("/api/dashboard", requireAuth, (req, res) => {
+app.get("/api/dashboard", requireAuth, (_req, res) => {
   res.status(200).json({
     success: true,
     message: "Dashboard access successful"
@@ -35,7 +35,7 @@ app.get("/api/dashboard", requireAuth, (req, res) => {
 });
 
 // Smart Parking API
-app.get("/api/parking/status", (req, res) => {
+app.get("/api/parking/status", (_req, res) => {
   res.status(200).json({
     success: true,
     data: getParkingData()
@@ -48,8 +48,8 @@ if (process.env.NODE_ENV === "production") {
 
   app.use(express.static(dist));
 
-  // Express v4 syntax; use "/{*splat}" if using Express v5
-  app.get("*", (req, res) => {
+  // Use "/{*splat}" for Express v5; use "*" if on Express v4
+  app.get("/{*splat}", (_req, res) => {
     res.sendFile(path.join(dist, "index.html"));
   });
 }
@@ -59,6 +59,10 @@ async function startServer() {
   try {
     if (!process.env.MONGO_URI) {
       throw new Error("MONGO_URI is missing from environment variables");
+    }
+
+    if (!process.env.JWT_SECRET) {
+      throw new Error("JWT_SECRET is missing from environment variables");
     }
 
     if (
