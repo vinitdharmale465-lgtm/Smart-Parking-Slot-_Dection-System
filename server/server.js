@@ -1,4 +1,3 @@
-
 import "dotenv/config";
 
 import express from "express";
@@ -18,7 +17,7 @@ dns.setServers(["8.8.8.8", "1.1.1.1"]);
 // Directory Configuration
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Express Application
+// Express App
 const app = express();
 
 // Middleware
@@ -49,6 +48,7 @@ if (process.env.NODE_ENV === "production") {
 
   app.use(express.static(dist));
 
+  // Express v4 syntax; use "/{*splat}" if using Express v5
   app.get("*", (req, res) => {
     res.sendFile(path.join(dist, "index.html"));
   });
@@ -69,20 +69,29 @@ async function startServer() {
       throw new Error("MQTT environment variables are missing");
     }
 
+    const mongoUrl = new URL(process.env.MONGO_URI);
+
+    console.log("--------------------------------");
+    console.log("MongoDB Host:", mongoUrl.hostname);
+    console.log("Database:", mongoUrl.pathname);
+    console.log("DNS Servers:", dns.getServers());
+    console.log("--------------------------------");
+
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 15000
     });
 
     console.log("MongoDB Connected Successfully");
 
+    // Connect MQTT
     connectMQTT();
 
+    // Start Server
     const PORT = process.env.PORT || 5000;
 
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on port ${PORT}`);
     });
-
   } catch (error) {
     console.error("Server Startup Error:");
     console.error(error.message);
