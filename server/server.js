@@ -2,11 +2,10 @@
 import "dotenv/config";
 
 import express from "express";
+import cors from "cors";
 import cookieParser from "cookie-parser";
 import mongoose from "mongoose";
 import dns from "node:dns";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import authRoutes from "./routes/auth.js";
 import { requireAuth } from "./middleware/auth.js";
@@ -15,11 +14,14 @@ import { connectMQTT, getParkingData } from "./mqtt.js";
 // DNS Configuration
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
-// Directory Configuration
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 // Express Application
 const app = express();
+
+// CORS Configuration
+app.use(cors({
+  origin: "https://smart-parking-slot-dection-system.netlify.app",
+  credentials: true
+}));
 
 // Middleware
 app.use(express.json());
@@ -36,7 +38,7 @@ app.get("/api/dashboard", requireAuth, (_req, res) => {
   });
 });
 
-// Smart Parking API
+// Smart Parking Status API
 app.get("/api/parking/status", (_req, res) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
 
@@ -46,21 +48,9 @@ app.get("/api/parking/status", (_req, res) => {
   });
 });
 
-// Production Frontend
-if (process.env.NODE_ENV === "production") {
-  const dist = path.join(__dirname, "../client/dist");
-
-  app.use(express.static(dist));
-
-  app.get("*", (_req, res) => {
-    res.sendFile(path.join(dist, "index.html"));
-  });
-}
-
-// Start Application
+// Start Server
 async function startServer() {
   try {
-    // Check Environment Variables
     if (!process.env.MONGO_URI) {
       throw new Error("MONGO_URI is missing");
     }
@@ -77,14 +67,14 @@ async function startServer() {
       throw new Error("MQTT environment variables are missing");
     }
 
-    // MongoDB Connection
+    // Connect MongoDB
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 15000
     });
 
     console.log("MongoDB Connected Successfully");
 
-    // MQTT Connection
+    // Connect MQTT
     connectMQTT();
 
     // Start Express Server
